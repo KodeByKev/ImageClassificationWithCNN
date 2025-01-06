@@ -1,6 +1,8 @@
 This repository contains the work done for my master's thesis
 
-"TechnicalPaper.pdf" - report of analysis and findings
+"TechnicalPaper.pdf" - report of analysis and findings (created with quarto in RStudio)
+
+"TechnicalPaper.qmd" quarto file used with RStudio to render pdf report 
 
 "CNNmodeling.ipynb" - python code for CNN modeling and transfer learning
 
