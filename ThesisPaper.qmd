@@ -1,0 +1,899 @@
+---
+title: Exploring Mushroom Classification with Convolutional Neural Networks
+#subtitle: Test
+author: Kevin Donohue
+institute: Truman State University
+school: School of Science and Mathematics
+department: Department of Computer and Data Sciences
+advisor: Dr. Scott Thatcher
+date: 09/17/2024
+date-format: "YYYY"
+linkcolor: blue
+urlcolor: blue
+citecolor: blue
+bibliography: references.bib
+params:
+  biblography-title: "Bibliography"
+editor: source
+format:
+  pdf:
+    link-citations: true
+    default-image-extension: png
+    documentclass: scrbook
+    classoption: table,twoside=false,11pt
+    mainfont: Cambria           # If not installed, try Cambria on Win
+    sansfont: Calibri            # If not installed, try Calibri on Win
+    monofont: Consolas               # If not installed, try Consolas on Win
+    mathfont: Cambria Math      # If not installed, try Cambria Math 
+    fontsize: 11pt
+    keep-tex: true
+    pdf-engine: xelatex
+    cap-location: bottom
+#    fontfamily: libertinus-otf # For the math--it looks good.
+    geometry: 
+      - left=1in
+      - right=1in
+      - top=1in
+      - bottom=1in
+    template-partials:
+      - before-body.tex
+      - toc.tex
+    toc: true
+    toc-title: Table of Contents
+    linestretch: 2
+#    include-in-header:
+#      - text: |
+#          \KOMAoption{toc}{listof,chapterentrydotfill}
+---
+
+```{r}
+#| echo: false
+knitr::opts_chunk$set(message=NA) #cache = False
+```
+
+```{r}
+#| echo: false
+#| warning: false
+reticulate::use_python("C:/Users/kevin/anaconda3/python.exe", required = TRUE)
+```
+
+```{python}
+#| echo: false
+from sklearn.metrics import confusion_matrix, classification_report, precision_recall_fscore_support, accuracy_score
+import h5py
+import json
+import matplotlib.pyplot as plt
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+import seaborn as sns
+import pandas as pd
+
+tf.keras.utils.disable_interactive_logging()
+
+```
+
+\tableofcontents
+
+\listoftables
+\listoffigures
+
+# Abstract
+
+This thesis explores image recognition modeling using Convolutional Neural Networks (CNNs) and their ability to classify mushrooms. A data set was created by gathering images of mushrooms using a custom Google search engine. Each image in the data set was opened in the GNU Image Manipulation Program [@gimp], where they were cropped and exported to directories. The images were then split into training and testing sets for analysis, and the Augmentor [@DBLP:journals/corr/abs-1708-04680] module was utilized to generate 10,000 augmented training samples from the training set. Python modules TensorFlow [@tensorflow2015-whitepaper] and Keras [@chollet2015keras] were used to evaluate four different image recognition models and their ability to predict four classes of mushrooms. After learning from the training set images, the four models were deployed to make predictions on the testing set images and their performances were compared. The thesis concludes with the selection of the best model according to accuracy and loss metrics. The selected model, ResNet50, is implemented in the [Mushroom Image Recognition App](https://kodebykev.shinyapps.io/ThesisApp/).
+
+\newpage
+
+\let\mainmatter\mainmatterreal
+\mainmatterreal
+
+# Introduction
+
+Image recognition has become an essential tool in various fields, ranging from self-driving cars to medical imaging. A common type of model used for these tasks is the Convolutional Neural Network (CNN), which utilizes a framework of neurons inspired by the way neurons connect in the human brain. In this thesis, three pre-trained CNN models and one CNN model built from scratch are deployed to classify four types of spore dispersal mechanisms found in mushrooms: gills, pores, ridges, and teeth. The ability to identify mushrooms is significant for mushroom foraging, a practice that involves searching for, identifying, and harvesting mushrooms. Mushroom foragers consider various factors when identifying mushrooms, such as taste, seasonality, and habitat. While many characteristics can be used for mushroom identification, this thesis focuses on the physical appearance of mushrooms. 
+
+# Methods
+
+## Data Collection
+
+There is no existing data set for this task, so a custom search engine was developed in Python using an API for specified image collection. The custom search engine takes any Google search query and returns 200 image URLs from the results. This tool was used to gather thousands of URLs representing the spore dispersal mechanisms specified in the queries. The collected URLs were then sorted into four text files, which were opened in Python and parsed, exporting each image to labeled directories in the process.
+
+From these directories, the images were opened in GIMP image editing software, where duplicates, irrelevant images, and invalid data were removed. The resulting data set consisted of 400 images, with 100 images for each class. Using GIMP, each image was cropped to focus on the undercarriage of the mushrooms, minimizing unnecessary noise in the images. After the cleaning process, the images were exported back into their respective directories with appropriate file names. See @fig-imagedisplay for a random sample of 16 images from all four directories.
+
+![Image Display](ThesisFigures/ImageDisplay.png){#fig-imagedisplay}
+
+| Subset   | Percentage | Total |
+|----------|------------|-------|
+| Training | 80%        | 320   |
+| Testing  | 20%        | 80    |
+
+: Subset Composition {#tbl-subset}
+
+With data collection and preprocessing complete, the data set was ready to be split into training and testing subsets. The scikit-learn [@scikit-learn] library for Python was used to perform the split, and the resulting subsets were organized into new directories. See @tbl-subset for the composition of these subsets.
+
+## Data Augmentation
+
+Due to the small sample size of the data, it was decided to increase the number of training samples to enhance the performance of the Convolutional Neural Network models and prevent overfitting. Data augmentation techniques were applied to the 320 training images, generating 10,000 augmented training samples. The primary goal of data augmentation is to improve the robustness and accuracy of machine learning models, allowing them to perform well even on small or poorly representative data sets [@alhassan2022]. These techniques create new samples by altering existing images, resulting in unique training samples that diversify the training set.
+
+The following data augmentation techniques from the Augmentor module were applied:
+
+-   **Flip Left-Right**: Horizontally flips the image with a probability of 50%
+
+-   **Rotate**: Rotates the image up to 180 degrees left or right with a 50% probability
+
+-   **Gaussian Blur**: Applies a Gaussian blur to smooth the image, averaging pixel values weighted by a Gaussian distribution, and reducing noise and detail with a probability of 20%
+
+-   **Zoom**: Zooms into the image with a probability of 20%, scaling between 1.1x and 1.5x with a probability of 30%
+
+-   **Random Brightness**: Randomly adjusts the brightness by a factor between 0.7 and 2 with a probability of 30%
+
+-   **Random Contrast**: Randomly adjusts the contrast by a factor between 0.7 and 2 with a probability of 30%
+
+-   **Random Distortion**: Applies random distortions to the image based on a grid of specified width and height with a probability of 30%
+
+-   **Shear**: Skews the image, tilting straight lines while preserving their parallelism with a probability of 30%
+
+-   **Crop Random**: Randomly crops the image to 80% of its area with a probability of 50%
+
+The augmented training set of 10,000 images contains approximately 31 unique samples for each of the original 320 training images, incorporating different combinations of augmentations depending on their specified probability. See @fig-augmenteddisplay for a visualization of these techniques applied to the same image of a mushroom with ridges.
+
+![Augmentation Techniques](ThesisFigures/AugDataMatrix.png){#fig-augmenteddisplay}
+
+## CNN for Image Classification
+
+With an augmented training set, the data were ready for modeling. Four CNN models were fitted to the data: VGG16, ResNet50, MobileNetv2, and the model made from scratch. The architecture of all four of the CNN models consist of an input layer, hidden layers, and output layers. The images are processed in the input layer, the features are learned in the hidden layers, and classification takes place in the ouput layers.
+
+### Input Layer
+
+In the input layer, each image is resized to 128 by 128 pixels with three color channels. These channels measure the intensity of red, green, and blue (RGB) in each pixel. Each pixel is assigned three numerical values corresponding to the intensity of red, green, and blue in that pixel.
+
+### Hidden Layers
+
+The values from the input layer are sent to the hidden layers, where the features used for classification are learned. The hidden layers applied in this research include convolutional layers, max-pooling layers, dropout layers, and bottleneck layers. These operative layers help the network refine its feature learning while maintaining efficiency.
+
+#### Convolutional Layers
+
+The first hidden layer is the convolutional layer, which applies a set of filters to the input to produce a feature map [@stanfordcs230cheatsheet]. A filter in a CNN is a small matrix of randomized weight values that scans across the input image, pixel by pixel, in each of the three channels. Each position in the filter corresponds to a neuron that processes a small patch of the image. For example, a 3 by 3 pixel filter applied to an RGB image has three separate 3 by 3 matrices for the Red, Green, and Blue channels. As the filter slides, or convolves, over the image, it processes a new patch at each position. See @fig-positiona and @fig-positionb for illustrations of a filter applied at two different positions.
+
+::: {#fig-position layout-ncol="2"}
+![Position a](ThesisFigures/positiona.png){#fig-positiona}
+
+![Position b](ThesisFigures/positionb.png){#fig-positionb}
+
+Convolution
+:::
+
+At each position, the neuron performs element-wise multiplication between the filter's weights and the numerical pixel values from the RGB channels. The resulting values are summed, producing a single scalar value for that position. These scalar values, computed across all positions, form a matrix called a feature map. This map represents the output of the convolutional layer after the filter has scanned the entire image.
+
+A visualization of how a feature map is generated from image input values and a filter can be seen in @fig-element from [@baeldung2024], where a scalar value of 31 is calculated for a specific position on the feature map.
+
+![Element-Wise Multiplication](ThesisFigures/Convolution.png){#fig-element}
+
+Element-wise multiplication is the operation of multiplying corresponding elements of the image patch matrix and the filter matrix and then summing the results. This operation is performed at each position as the filter slides over the image, producing a feature map. Each value in the feature map corresponds to the output of a neuron processing a specific part of the image.
+
+Feature maps highlight particular features or patterns, such as edges or textures, that the filter detects. Their dimensions are determined by the size of the input, the size of the filter, the stride, and whether padding is applied. In this thesis, 'same' padding is employed to ensure that the filter learns each pixel at the same number of positions. See @fig-positiona and @fig-positionb to better visualize how a filter convolves over an image to generate a feature map.
+
+#### Max-Pooling Layers
+
+Max-pooling layers are a type of hidden layer applied after convolutional layers. These layers reduce the spatial dimensions of feature maps by selecting the maximum value from small regions of the image [@shanmugamani2024]. This operation retains the most significant information while decreasing model complexity and improving model efficiency.
+
+In this thesis, max-pooling layers were incorporated into the model made from scratch to speed up its training process. For example, max-pooling with a 2 by 2 filter significantly compresses the information in the data while preserving critical details. See @fig-maxpool for a visualization of a max-pooling operation.
+
+![Max-Pooling](ThesisFigures/maxpool.png){#fig-maxpool}
+
+#### Dropout Layers
+
+Another hidden layer found in convolutional blocks is dropout layers. During training, dropout layers randomly deactivate a fraction of neurons, preventing the model from becoming too dependent on specific neurons and thus helping prevent overfitting [@dotnettutorials2024]. Overfitting occurs when the model becomes too dependent on features learned from the training set and cannot generalize well when making predictions on new data. See @fig-dropout for the effect of dropout layers on networks.
+
+![Dropout Layers](ThesisFigures/dropout.png){#fig-dropout}
+
+When evaluating the models on the testing set, the neurons that were dropped during training are present in the model. Since random neurons are dropped during each training iteration, each neuron becomes more diverse at different iterations, creating a more generalized model. In this thesis, dropout layers are applied in all four models.
+
+#### Bottleneck Layers
+
+A significant architectural feature found in the MobileNetV2 and ResNet50 models is the bottleneck layer. A bottleneck layer is a layer in the network that has fewer neurons than the layers preceding and succeeding it [@demarchi2024hands]. This layer with fewer neurons creates a narrow section in the network, or a bottleneck. The bottleneck layer compresses the most relevant and useful information from the input features into fewer neurons to reduce the complexity of the model. See @fig-bottleneck for a visual representation of a bottleneck layer and network architecture.
+
+![Bottleneck Layers](ThesisFigures/bottleneck2.png){#fig-bottleneck}
+
+### L2 Filter Regularization
+
+L2 filter regularization is not a hidden layer in itself, but a technique that can be applied to convolutional layers to help the models converge. L2 regularization, also known as weight decay, encourages the model's weights to stay small by penalizing large values, as shown in red [@Valverde2018]. This results in the weights being concentrated around 0, as shown by the circular blue weights near the origin. As the regularization penalty increases, the weights are pushed toward the edges of the circle, illustrating how L2 regularization minimizes large weight values. Conceptually, L2 regularization uses a circle as a hard constraint for weights. If the weights become too large and move outside of the constraint region, the coefficients are regularized and move back towards the boundary of the constraint region. In this research, L2 regularization is applied to the model made from scratch so that it can learn more generalized features of the mushrooms. The weight values seen in @fig-l2reg correspond to the learned features of the input data.
+
+![L2 Filter Regularization](ThesisFigures/l2reg.png){#fig-l2reg}
+
+### Output Layers
+
+In a fully connected layer, each neuron connects to every neuron in both the preceding and subsequent layers, summarizing the information across the network. This layer transforms the two-dimensional feature maps produced by earlier layers into a one-dimensional vector, called logits, which numerically represents the features the model has learned from the input data. The logits are then passed through a softmax activation function, which converts them into a probability distribution over the target classes, ensuring the probabilities sum to one. The class with the highest probability becomes the model's predicted output. In the architecture depicted in @fig-output, the softmax layer predicts one of three classes for classification.
+
+![Network Architecture](ThesisFigures/output.png){#fig-output}
+
+### Deep Learning
+
+Deep learning refers to the processes that occur in the input, hidden, and output layers, which are repeated over time, or at each epoch. An epoch refers to one complete iteration of the entire training set through a neural network. During each epoch, the model iterates over all the training examples, makes predictions on the testing set, computes errors based on the difference between predictions and actual labels, and updates its weights to reduce those errors. Models often improve incrementally with each subsequent epoch, and the filters become more specialized, focusing on the critical features needed to classify the mushrooms.
+
+### Transfer Learning
+
+Transfer learning is a powerful technique in deep learning where a pre-trained model is adapted to solve a different but related problem. In this research, three pre-trained models are deployed to leverage the information learned from the ImageNet [@5206848] database to make predictions on the mushroom data set. ImageNet which contains over a million labeled images across 1,000 categories, which help these models to generalize well to the mushroom data set. Transfer learning significantly reduces the training time and can produce more accurate classification results.
+
+## Model Structure
+
+### VGG16 Model
+
+VGG16 [@simonyan2014very] is a pre-trained, deep convolutional network model for image classification. The "16" in VGG16 refers to the number of layers with weights that the network has, which includes 13 convolutional layers and 3 fully connected layers. VGG16 uses 3 by 3 convolutional layers stacked on top of each other, with max-pooling layers in between. While VGG16 is not the deepest model in terms of layers, it still has a large number of weights.
+
+### ResNet50 Model
+
+ResNet50 [@he2016deep] is a complex pre-trained model named after the "50," which refers to the number of layers in the network, specifically 49 convolutional layers and one fully connected layer. ResNet50 is structured using bottleneck layers. The core unit of ResNet is the bottleneck block, which includes a 1 by 1 convolution for reducing dimensions and a 3 by 3 convolution for processing features. ResNet50 is the deepest model with the largest number of weights.
+
+### MobileNetV2
+
+The MobileNetV2 [@sandler2018mobilenetv2] pre-trained model was introduced by Google in 2018 and uses bottleneck layers to preserve information while reducing the number of weights and computations. It is optimized for low-latency and lower computational power, making it suitable for image recognition tasks on smartphones. MobileNetV2 has fewer weights than VGG16 and ResNet50, making its training time much quicker.
+
+### Building CNN Model from Scratch
+
+The model built from scratch was created with 3 convolutional layers with 256, 512, and 1024 filters, creating a similar number of weights as the pre-trained models. It was also built with 2 by 2 max-pooling layers, dropout layers, and kernel regularization in all 3 convolutional blocks to improve convergence. See @tbl-architecture to compare the number of weights in each model.
+
+| Model       | Number of Weights |
+|-------------|-------------------|
+| VGG16       | 14,813,006        |
+| ResNet50    | 23,980,942        |
+| MobileNetV2 | 10,638,862        |
+| New Model   | 10,866,158        |
+
+: Model Weight Comparison {#tbl-architecture}
+
+# Results
+
+While each model is structured differently, each of them is designed for image classification. To evaluate these models, they were trained to learn features from the augmented training set and deployed to make predictions on the testing set. See @fig-predict to visualize how the models make predictions on the testing set.
+
+```{python}
+#| echo: false
+#| warning: false
+batch_size = 30
+image_size = (128, 128)
+seed = 81
+
+
+# Creating training set from augmented data
+aug_train_dir = r'C:\Users\kevin\OneDrive\Desktop\Thesisrepo\CleanandAugData\train_ds\output'
+aug_train_ds = tf.keras.utils.image_dataset_from_directory(
+    aug_train_dir,
+    labels="inferred",
+    label_mode="categorical",
+    color_mode="rgb",
+    batch_size=batch_size,
+    image_size=image_size,
+    shuffle=True,
+    seed=seed
+)
+
+
+# Creating validation set
+val_dir = r'C:\Users\kevin\OneDrive\Desktop\Thesisrepo\CleanandAugData\val_ds'
+val_ds = tf.keras.utils.image_dataset_from_directory(
+    val_dir,
+    labels="inferred",
+    label_mode="categorical",
+    color_mode="rgb",
+    batch_size=batch_size,
+    image_size=image_size,
+    shuffle=True,
+    seed=seed
+)
+
+```
+
+```{python}
+#| label: fig-predict
+#| fig-cap: "Prediction"
+#| echo: false
+
+best_model = load_model('new_best_model.keras')
+
+class_labels = ['Gills', 'Pores', 'Ridges', 'Teeth']
+
+
+def get_labels_and_predictions(best_model, val_ds):
+    y_true = []
+    y_preds = []
+    images_list = []
+
+    for images, labels in val_ds:
+        
+        images_list.extend(images.numpy())  
+        y_true.extend(np.argmax(labels.numpy(), axis=1))  
+        predictions = best_model.predict(images)
+        y_preds.extend(np.argmax(predictions, axis=1))  
+    return np.array(y_true), np.array(y_preds), np.array(images_list)
+
+
+y_true, y_preds, val_images = get_labels_and_predictions(best_model, val_ds)
+
+# Function to display precision, recall, F-Score, and support
+def display_results(y_true, y_preds, class_labels):
+    results = pd.DataFrame(precision_recall_fscore_support(y_true, y_preds), 
+                           columns=class_labels).T
+    results.rename(columns={0: 'Precision', 1: 'Recall', 
+                            2: 'F-Score', 3: 'Support'}, inplace=True)
+    
+    results.sort_values(by='F-Score', ascending=False, inplace=True)  # Sort by F-Score
+    global_acc = accuracy_score(y_true, y_preds)  #
+    return results
+
+# Function to plot predictions with true labels in a 3 by 3 grid
+def plot_predictions(y_true, y_preds, images, class_labels):
+    fig = plt.figure(figsize=(12, 12))  # Set figure size for 3 by 3 grid
+    
+    num_images = 25  # Number of images to display
+    sample_indices = np.random.choice(len(y_true), size=num_images, replace=False)  
+    
+    for i, idx in enumerate(sample_indices):  # Iterate overindices
+        ax = fig.add_subplot(5, 5, i + 1, xticks=[], yticks=[])  
+        ax.imshow(images[idx].astype('uint8'))  
+
+        pred_idx = y_preds[idx]  
+        true_idx = y_true[idx]  
+        ax.set_title("{}\n({})".format(class_labels[pred_idx], class_labels[true_idx]),
+                     color=("green" if pred_idx == true_idx else "red"), fontsize=12)  
+        
+    plt.tight_layout()
+    plt.show()
+
+
+results_df = display_results(y_true, y_preds, class_labels)  
+plot_predictions(y_true, y_preds, val_images, class_labels)
+
+
+
+
+```
+
+The predictions on this 25-image sample from the testing set show the true values in parentheses with 18 correct predictions shown in green and 7 incorrect predictions shown in red, resulting in a validation accuracy of 72%. After each model made predictions on all 80 of the testing set images, their performances were evaluated based on accuracy and loss metrics.
+
+## VGG16 Model Performance
+
+```{python}
+#| label: fig-vggaccloss
+#| echo: false
+#| warning: false
+#| fig-cap: "VGG16 Model Accuracy & Loss Plots"
+
+
+file_path = 'vgg_model_20241201-003218.h5'
+
+# Load the description and training history
+with h5py.File(file_path, 'r') as f:
+    loaded_description = f.attrs['description']
+    loaded_history_json = f.attrs['training_history']
+    loaded_history = json.loads(loaded_history_json)
+    train_loss = loaded_history['loss']
+    train_accuracy = loaded_history['accuracy']
+    val_loss = loaded_history['val_loss']
+    val_accuracy = loaded_history['val_accuracy']
+
+# Load the saved model
+saved_model = load_model(file_path, compile=False)
+
+# Create subplots with 1 row and 2 columns
+fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+
+# Plot accuracy
+axs[0].plot(train_accuracy, label='Train Accuracy')
+axs[0].plot(val_accuracy, label='Validation Accuracy')
+axs[0].set_title('Model Accuracy', fontsize=20)
+axs[0].set_xlabel('Epoch', fontsize=18)
+axs[0].set_ylabel('Accuracy', fontsize=18)
+axs[0].legend(loc='upper left', fontsize=12)
+axs[0].tick_params(axis='x', labelsize=18)
+axs[0].tick_params(axis='y', labelsize=18)
+
+# Plot loss
+axs[1].plot(train_loss, label='Train Loss')
+axs[1].plot(val_loss, label='Validation Loss')
+axs[1].set_title('Model Loss', fontsize=20)
+axs[1].set_xlabel('Epoch', fontsize=18)
+axs[1].set_ylabel('Loss', fontsize=18)
+axs[1].legend(loc='upper left', fontsize=12)
+axs[1].tick_params(axis='x', labelsize=18)
+axs[1].tick_params(axis='y', labelsize=18)
+# Adjust spacing between plots and add space below the plots
+plt.subplots_adjust(wspace=0.4, hspace=0.4, bottom=0.2)
+
+#plt.tight_layout()
+plt.show()
+
+
+
+```
+
+The graphs in @fig-vggaccloss show the model reaching a validation accuracy of 0.82, indicating that the model performs well on the testing set. The model reached its highest validation accuracy at the 56th epoch, where the loss begins to plateau. While there is still some overfitting, the model learns the training data well.
+
+```{python}
+#| label: fig-vggconf
+#| fig-cap: "VGG16 Model Confusion Matrix"
+#| echo: false
+#| warning: false
+#| message: false
+best_model = load_model('vgg_best_model.keras')
+
+
+vgg_val_labels = []
+vgg_val_preds = []
+
+for images, labels in val_ds:
+    preds = best_model.predict(images)
+    vgg_val_labels.extend(np.argmax(labels.numpy(), axis=1))
+    vgg_val_preds.extend(np.argmax(preds, axis=1))
+
+# Create confusion matrix
+vgg_cm = confusion_matrix(vgg_val_labels, vgg_val_preds)
+
+
+vgg_class_names = val_ds.class_names
+
+
+plt.figure(figsize=(10, 8))
+sns.heatmap(vgg_cm, annot=True, fmt='d', cmap='Blues', xticklabels=vgg_class_names,
+            yticklabels=vgg_class_names, cbar=False, annot_kws={"size": 18})
+plt.xlabel('Predicted', fontsize=18)
+plt.ylabel('True', fontsize=18)
+plt.title('VGG16 Confusion Matrix', fontsize=20)
+plt.xticks(fontsize=18);
+plt.yticks(fontsize=18);
+
+#plt.show()
+
+#plt.clf()
+
+
+```
+
+```{python}
+#| label: tbl-vggclass
+#| echo: false
+#| warning: false
+#| message: false
+#| tbl-cap: "VGG16 Classification Report"
+#| tbl-align: center
+report_dict = classification_report(vgg_val_labels, vgg_val_preds, target_names=vgg_class_names, output_dict=True)
+
+# Convert the dictionary to a pandas DataFrame
+report_df = pd.DataFrame(report_dict).transpose()
+
+
+
+
+report_df_styled = report_df.style.format(precision=2).set_table_attributes("style='display:inline'")
+# Display the styled DataFrame
+
+report_df_styled
+
+
+```
+
+The confusion matrix in @fig-vggconf shows that the model correctly predicted 18 out of 20 instances for both gills and ridges, demonstrating strong performance in these categories. For pores, the model achieved 16 correct predictions out of 20, while for teeth, it was accurate 14 times out of 20, indicating slightly lower performance for this class. Overall, the model's highest accuracy achieved on the validation set was 82%.
+
+\clearpage
+
+## ResNet50 Model Performance
+
+```{python}
+#| label: fig-rnaccloss
+#| echo: false
+#| warning: false
+#| fig-cap: "ResNet50 Model Accuracy & Loss Plots"
+#| fig-label: "fig:5" 
+
+file_path = 'resnet_model_20241201-213159.h5'
+
+# Load the description and training history
+with h5py.File(file_path, 'r') as f:
+    loaded_description = f.attrs['description']
+    loaded_history_json = f.attrs['training_history']
+    loaded_history = json.loads(loaded_history_json)
+    train_loss = loaded_history['loss']
+    train_accuracy = loaded_history['accuracy']
+    val_loss = loaded_history['val_loss']
+    val_accuracy = loaded_history['val_accuracy']
+
+
+saved_model = load_model(file_path, compile=False)
+
+# Create subplots with 1 row and 2 columns
+fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+
+
+axs[0].plot(train_accuracy, label='Train Accuracy')
+axs[0].plot(val_accuracy, label='Validation Accuracy')
+axs[0].set_title('Model Accuracy', fontsize=20)
+axs[0].set_xlabel('Epoch', fontsize=18)
+axs[0].set_ylabel('Accuracy', fontsize=18)
+axs[0].legend(loc='upper left', fontsize=12)
+axs[0].tick_params(axis='x', labelsize=18)
+axs[0].tick_params(axis='y', labelsize=18)
+
+
+axs[1].plot(train_loss, label='Train Loss')
+axs[1].plot(val_loss, label='Validation Loss')
+axs[1].set_title('Model Loss', fontsize=20)
+axs[1].set_xlabel('Epoch', fontsize=18)
+axs[1].set_ylabel('Loss', fontsize=18)
+axs[1].legend(loc='upper left', fontsize=12)
+axs[1].tick_params(axis='x', labelsize=18)
+axs[1].tick_params(axis='y', labelsize=18)
+
+
+plt.subplots_adjust(wspace=0.4, hspace=0.4, bottom=0.2)
+
+#plt.tight_layout()
+plt.show()
+
+
+```
+
+The plots in @fig-rnaccloss show that the model reached a validation accuracy of 0.86, which is greater than the validation accuracy of the new model and VGG16. The model performs well on the new data and reached its highest validation accuracy at the 14th epoch as the loss continued to plateau.
+
+```{python}
+#| label: fig-rnconf
+#| echo: false
+#| warning: false
+#| fig-cap: "ResNet50 Model Confusion Matrix"
+
+
+best_model = load_model('resnet_best_model.keras')
+
+
+resnet_val_labels = []
+resnet_val_preds = []
+
+for images, labels in val_ds:
+    preds = best_model.predict(images)
+    resnet_val_labels.extend(np.argmax(labels.numpy(), axis=1))
+    resnet_val_preds.extend(np.argmax(preds, axis=1))
+
+# Create confusion matrix
+resnet_cm = confusion_matrix(resnet_val_labels, resnet_val_preds)
+
+
+resnet_class_names = val_ds.class_names
+
+# Plot confusion matrix
+plt.figure(figsize=(10, 8))
+sns.heatmap(resnet_cm, annot=True, fmt='d', cmap='Blues', xticklabels=resnet_class_names,
+            yticklabels=resnet_class_names, cbar=False, annot_kws={"size": 18})
+            
+plt.xlabel('Predicted', fontsize=18)
+plt.ylabel('True', fontsize=18)
+plt.title('ResNet50 Confusion Matrix', fontsize=20)
+plt.xticks(fontsize=18);
+plt.yticks(fontsize=18);
+
+#plt.show()
+
+
+#plt.clf()
+
+```
+
+```{python}
+#| label: tbl-rnclass
+#| echo: false
+#| warning: false
+#| message: false
+#| tbl-cap: "ResNet50 Classification Report"
+#| tbl-align: center
+
+report_dict = classification_report(resnet_val_labels, resnet_val_preds, target_names=resnet_class_names, output_dict=True)
+
+# Convert the dictionary to a pandas DataFrame
+report_df = pd.DataFrame(report_dict).transpose()
+
+
+
+report_df_styled = report_df.style.format(precision=2).set_table_attributes("style='display:inline'")
+# Display the styled DataFrame
+report_df_styled
+
+```
+
+The confusion matrix seen in @fig-rnconf shows the ResNet50 model's performance on the validation set. gills were correctly identified in 18 out of 20 instances, while pores, ridges, and teeth were each predicted accurately 17 out of 20 times. This uniformity in performance reflects the model's ability to generalize well across most categories. With a total of 69 correct predictions out of 80, the highest accuracy on the validation set stands at 86%.
+
+\clearpage
+
+## MobileNetV2 Model Performance
+
+```{python}
+#| label: fig-mnaccloss
+#| echo: false
+#| warning: false
+#| fig-cap: "MobileNetV2 Model Accuracy & Loss Plots"
+
+
+file_path = 'mobilenet_model_20241201-234558.h5'
+
+# Load the description and training history
+with h5py.File(file_path, 'r') as f:
+    loaded_description = f.attrs['description']
+    loaded_history_json = f.attrs['training_history']
+    loaded_history = json.loads(loaded_history_json)
+    train_loss = loaded_history['loss']
+    train_accuracy = loaded_history['accuracy']
+    val_loss = loaded_history['val_loss']
+    val_accuracy = loaded_history['val_accuracy']
+
+# Load the saved model
+saved_model = load_model(file_path, compile=False)
+
+# Create subplots with 1 row and 2 columns
+fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+
+axs[0].plot(train_accuracy, label='Train Accuracy')
+axs[0].plot(val_accuracy, label='Validation Accuracy')
+axs[0].set_title('Model Accuracy', fontsize=20)
+axs[0].set_xlabel('Epoch', fontsize=18)
+axs[0].set_ylabel('Accuracy', fontsize=18)
+axs[0].legend(loc='upper left', fontsize=12)
+axs[0].tick_params(axis='x', labelsize=18)
+axs[0].tick_params(axis='y', labelsize=18)
+
+# Plot loss
+axs[1].plot(train_loss, label='Train Loss')
+axs[1].plot(val_loss, label='Validation Loss')
+axs[1].set_title('Model Loss', fontsize=20)
+axs[1].set_xlabel('Epoch', fontsize=18)
+axs[1].set_ylabel('Loss', fontsize=18)
+axs[1].legend(loc='upper left', fontsize=12)
+axs[1].tick_params(axis='x', labelsize=18)
+axs[1].tick_params(axis='y', labelsize=18)
+
+# Adjust spacing between plots and add space below the plots
+plt.subplots_adjust(wspace=0.4, hspace=0.4, bottom=0.2)
+
+#plt.tight_layout()
+plt.show()
+
+```
+
+The plots shown in @fig-mnaccloss show the model reaches a validation accuracy of 0.81 at the 7th epoch before it begins to overfit the training data. The accuracy and loss plots suggest that while the model is capable of capturing important features early on, it eventually loses its ability to generalize effectively. The model becomes too dependent on the features learned in the training data when it is making predictions on the testing set.
+
+```{python}
+#| label: fig-mnconf
+#| echo: false
+#| warning: false
+#| fig-cap: "MobileNetV2 Model Confusion Matrix"
+
+
+best_model = load_model('mobilenet_best_model.keras')
+
+
+mobilenet_val_labels = []
+mobilenet_val_preds = []
+
+for images, labels in val_ds:
+    preds = best_model.predict(images)
+    mobilenet_val_labels.extend(np.argmax(labels.numpy(), axis=1))
+    mobilenet_val_preds.extend(np.argmax(preds, axis=1))
+
+# Create confusion matrix
+mobilenet_cm = confusion_matrix(mobilenet_val_labels, mobilenet_val_preds)
+
+
+mobilenet_class_names = val_ds.class_names
+
+# Plot confusion matrix
+plt.figure(figsize=(10, 8))
+sns.heatmap(mobilenet_cm, annot=True, fmt='d', cmap='Blues', xticklabels=mobilenet_class_names,
+            yticklabels=mobilenet_class_names, cbar=False, annot_kws={"size": 18})
+            
+plt.xlabel('Predicted', fontsize=18)
+plt.ylabel('True', fontsize=18)
+plt.title('MobileNetV2 Confusion Matrix', fontsize=20)
+plt.xticks(fontsize=18);
+plt.yticks(fontsize=18);
+
+#plt.show()
+
+
+#plt.clf()
+
+```
+
+```{python}
+#| label: tbl-mnclass
+#| echo: false
+#| warning: false
+#| message: false
+#| tbl-cap: "MobileNetV2 Classification Report"
+#| tbl-align: center
+
+report_dict = classification_report(mobilenet_val_labels, mobilenet_val_preds, target_names=mobilenet_class_names, output_dict=True)
+
+
+# Convert the dictionary to a pandas DataFrame
+report_df = pd.DataFrame(report_dict).transpose()
+
+
+
+
+report_df_styled = report_df.style.format(precision=2).set_table_attributes("style='display:inline'")
+# Display the styled DataFrame
+report_df_styled
+```
+
+See @fig-mnconf for the MobileNetV2 model's confusion matrix, which shows the model correctly predicted 18 out of 20 instances of gills, 19 out of 20 for pores, 17 out of 20 for ridges, and 11 out of 20 for teeth. Notably, the 19 correct predictions for pores represent the highest precision achieved by any model for a single class. However, the relatively lower precision for teeth kept the overall accuracy down. Overall, the model achieved a total of 65 correct predictions out of 80, resulting in an accuracy of 81% on the validation set.
+
+\clearpage
+
+## New Model From Scratch Performance
+
+```{python}
+#| label: fig-nmaccloss
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-cap: "New Model Accuracy & Loss Plots"
+
+
+file_path = 'EvenDistr_20241201-204221.h5'
+
+
+# Load the description and training history
+with h5py.File(file_path, 'r') as f:
+    loaded_description = f.attrs['description']
+    loaded_history_json = f.attrs['training_history']
+    loaded_history = json.loads(loaded_history_json)
+    train_loss = loaded_history['loss']
+    train_accuracy = loaded_history['accuracy']
+    val_loss = loaded_history['val_loss']
+    val_accuracy = loaded_history['val_accuracy']
+
+# Load the saved model
+saved_model = load_model(file_path, compile=False)
+
+# Create subplots with 1 row and 2 columns
+fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+
+axs[0].plot(train_accuracy, label='Train Accuracy')
+axs[0].plot(val_accuracy, label='Validation Accuracy')
+axs[0].set_title('Model Accuracy', fontsize=20)
+axs[0].set_xlabel('Epoch', fontsize=18)
+axs[0].set_ylabel('Accuracy', fontsize=18)
+axs[0].legend(loc='upper left', fontsize=12)
+axs[0].tick_params(axis='x', labelsize=18)
+axs[0].tick_params(axis='y', labelsize=18)
+
+# Plot loss
+axs[1].plot(train_loss, label='Train Loss')
+axs[1].plot(val_loss, label='Validation Loss')
+axs[1].set_title('Model Loss', fontsize=20)
+axs[1].set_xlabel('Epoch', fontsize=18)
+axs[1].set_ylabel('Loss', fontsize=18)
+axs[1].legend(loc='upper left', fontsize=12)
+axs[1].tick_params(axis='x', labelsize=18)
+axs[1].tick_params(axis='y', labelsize=18)
+
+# Adjust spacing between plots and add space below the plots
+
+
+#plt.tight_layout()
+plt.show()
+
+
+```
+
+The graphs in @fig-nmaccloss show the model reaches a validation accuracy of 0.62. During training, the validation accuracy and loss plateau around the 15th epoch, suggesting that the model struggles to improve beyond a certain point. This behavior indicates that the model is either underfitting the data or is unable to capture important patterns.
+
+```{python}
+#| label: fig-nmconf
+#| echo: false
+#| warning: false
+#| fig-cap: "New Model Confusion Matrix"
+
+# Load the model weights from the epoch with the highest val_accuracy
+best_model = load_model('new_best_model.keras')
+
+
+# Generate the confusion matrix with the best model
+new_val_labels = []
+new_val_preds = []
+
+for images, labels in val_ds:
+    preds = best_model.predict(images)
+    new_val_labels.extend(np.argmax(labels.numpy(), axis=1))
+    new_val_preds.extend(np.argmax(preds, axis=1))
+
+# Create confusion matrix
+new_cm = confusion_matrix(new_val_labels, new_val_preds)
+
+
+new_class_names = val_ds.class_names
+# Plot confusion matrix
+plt.figure(figsize=(10, 8))
+sns.heatmap(new_cm, annot=True, fmt='d', cmap='Blues', xticklabels=new_class_names,
+            yticklabels=new_class_names, cbar=False, annot_kws={"size": 18})
+plt.xlabel('Predicted', fontsize=18)
+plt.ylabel('True', fontsize=18)
+plt.title('New Model Confusion Matrix', fontsize=20)
+plt.xticks(fontsize=18);
+plt.yticks(fontsize=18);
+
+```
+
+```{python}
+#| label: tbl-nmclass
+#| echo: false
+#| warning: false
+#| message: false
+#| tbl-cap: "New Model Classification Report"
+#| tbl-align: center
+
+report_dict = classification_report(new_val_labels, new_val_preds, target_names=new_class_names, output_dict=True)
+
+# Convert the dictionary to a pandas DataFrame
+report_df = pd.DataFrame(report_dict).transpose()
+
+# Ensure no visualizations or text output are generated
+#import matplotlib.pyplot as plt
+#plt.close('all')  # Close any figures that might be hanging around
+
+
+
+# Style the DataFrame for display
+report_df_styled = report_df.style.format(precision=2).set_table_attributes("style='display:inline'")
+
+# Explicitly display the styled DataFrame (ensure other outputs are suppressed)
+report_df_styled
+
+
+
+```
+
+The confusion matrix seen in @fig-nmconf shows that when the new model made predictions on the testing set, gills were correctly identified in only 8 out of 20 cases, the lowest accuracy for any class, while pores were predicted correctly 14 times, ridges 12 times, and teeth 16 times out of 20. The model demonstrated its best performance when identifying mushrooms with teeth but struggled notably with gills. Overall, the model correctly classified 50 out of 80 samples, yielding an accuracy of 62% on the validation set.
+
+\clearpage
+
+## Model Comparison
+
+```{python}
+#| label: tbl-compare
+#| echo: false
+#| warning: false
+#| message: false
+#| tbl-cap: "Model Comparison"
+#| tbl-align: center
+
+
+
+# Model names and accuracies
+model_names = ['New Model', 'VGG16 Model', 'ResNet50 Model', 'MobileNetV2 Model']
+accuracies = [0.62, 0.82, 0.86, 0.81]
+
+# Create a DataFrame
+df = pd.DataFrame({
+    'Model Name': model_names,
+    'Validation Accuracy': accuracies
+})
+
+# Style the DataFrame
+df_styled = df.style.format(precision=2).hide(axis='index').set_table_attributes("style='display:inline'")
+
+# Display the styled DataFrame
+df_styled
+
+
+```
+
+As seen in @tbl-compare, the ResNet50 model achieved the highest performance on the validation set, demonstrating superior accuracy in making predictions. MobileNetV2 and VGG16 also performed well, delivering strong and reliable results, though slightly behind ResNet50. In contrast, the model trained from scratch struggled to achieve comparable accuracy. This is primarily because it did not utilize transfer learning, unlike the pre-trained models, which benefited from starting with pre-existing weights learned from extensive data sets such as ImageNet.
+
+## Shiny App Development
+
+The artifact for this thesis is an app that allows users to upload an image of a mushroom's undercarriage, which is then classified into one of four categories: gills, pores, ridges, or teeth. The app was developed using the web application framework, Shiny [@shiny2024]. When a user accesses the app, the ResNet50 model is deployed to classify the image the user inputs. The app is not intended to determine if mushrooms are safe to consume; rather, it can be used as a supplement for species identification. Try the app here: [Mushroom Image Recognition App](https://kodebykev.shinyapps.io/ThesisApp/)
+
+# Discussion
+
+For future research, the model trained from scratch could be enhanced by training on a massive data set like the 1.2 million images from ImageNet, and then reevaluated for predictions on the mushroom data set. Access to such a large and diverse training set could enable the model to learn more distinct patterns, potentially improving the classification of the four mushroom types.
+
+All three pre-trained models—ResNet50, MobileNetV2, and VGG16—achieved similar results on the mushroom data set despite their differing architectures. This suggests that the specific features learned by these architectures may converge when fine-tuned on a smaller data set like the one used in this thesis. The high performance of the pre-trained models on the mushroom data set highlights the robustness of transfer learning across various model designs.
+
+Future exploration could focus on techniques to prevent overfitting, as this was an issue encountered with all the pre-trained models on the mushroom data set. The pre-trained models tended to learn the features of the mushrooms too well before overfitting techniques were applied.
+
+\chapter{References}
