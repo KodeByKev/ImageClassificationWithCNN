@@ -1,4 +1,4 @@
-This repository contains the work done for my master's thesis
+This repository contains documents for my master's thesis
 
 "TechnicalPaper.pdf" - report of analysis and findings (created with quarto in RStudio)
 
