@@ -8,4 +8,4 @@ This repository contains the following documents for my master's thesis:
 
 "Data Collection.ipynb" - python code for custom search engine used for data collection
 
-"Raw Data" contains the images used to create the dataset
+"Raw Data" - contains the images used to create the dataset
